@@ -1,0 +1,11 @@
+2026-02-24 18:02:06 [extension.py:165] INFO: Looking for Python nodes to register in omni.physx.fabric-107.3.26
+2026-02-24 18:02:06 [extension.py:194] INFO:  -> Registered nodes from module omni.physxfabric at /home/team2/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/isaacsim/extscache/omni.physx.fabric-107.3.26+107.3.3.lx64.r.cp311.u353
+2026-02-24 18:02:06 [registration.py:33] INFO: Registering nodes in /home/team2/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/isaacsim/extscache/omni.physx.fabric-107.3.26+107.3.3.lx64.r.cp311.u353 imported as omni.physxfabric with AutoNode config {}
+2026-02-24 18:02:06 [register_python_ogn.py:72] INFO: Registering Python Node Types from omni.physxfabric at /home/team2/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/isaacsim/extscache/omni.physx.fabric-107.3.26+107.3.3.lx64.r.cp311.u353 in omni.physx.fabric
+2026-02-24 18:02:06 [register_python_ogn.py:73] INFO: ========================================================================================================================
+2026-02-24 18:02:06 [extension_management.py:139] INFO: No dependency on omni.graph, therefore no nodes to register in omni.physx.fabric
+2026-02-24 18:02:06 [register_python_ogn.py:79] INFO: ...None found, no registration to do
+2026-02-24 18:02:06 [extension.py:206] INFO: ...Skipping: No OmniGraph presence in the module omni.physxfabric - No nodes in this module, do not remember it
+2026-02-24 18:02:06 [registration.py:50] INFO: Destroying registration record for omni.physx.fabric
+2026-02-24 18:02:06 [extension.py:215] INFO: OGN register omni.physx.fabric-107.3.26 took 725756.000000
+2026-02-24 18:02:06 [simulation_context.py:836] WARNING: The `enable_external_forces_every_iteration` parameter in the PhysxCfg is set to False. If you are experiencing noisy velocities, consider enabling this flag. You may need to slightly increase the number of velocity iterations (setting it to 1 or 2 rather than 0), together with this flag, to improve the accuracy of velocity updates.
