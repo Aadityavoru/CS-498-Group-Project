@@ -7,10 +7,12 @@
 \usepackage{amssymb}
 \usepackage{graphicx}
 \usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{booktabs}
 
 \geometry{margin=1in}
 
-\title{CS 498 Team 2 Group Project \\ \large SONIC Kick}
+\title{CS 498 Team 2 Group Project \\ \large SONIC Kick: Fine-Tuning a Whole-Body Motion Prior for Humanoid Football Kicking}
 \author{}
 \date{}
 
@@ -18,35 +20,143 @@
 
 \maketitle
 
-\noindent\textbf{Goal:} Fine-tune SONIC's pre-trained whole-body motion prior to learn a consistent football kicking policy, guided by human demonstrations, and transfer it to the physical humanoid.
+\noindent\textbf{Goal:} Fine-tune SONIC's pre-trained whole-body motion prior to learn a consistent football kicking policy, guided by human demonstrations, and transfer it to the physical Booster K1 humanoid.
 
 \begin{abstract}
-    % Abstract goes here
+Reliable dexterous task execution remains an open problem for humanoid robots. We propose \textit{SONIC Kick}: a system that fine-tunes SONIC's large-scale motion-tracking prior~\cite{luo2025sonic} to produce a robust, natural-looking football kicking policy for the Booster K1 robot. By initialising from a pre-trained whole-body controller rather than training from scratch, we aim to dramatically reduce sample complexity while retaining postural naturalness. Human kicking demonstrations are captured and retargeted to K1 joint space to provide kinematic targets and shape the reward signal. The policy is trained in Isaac Lab with comprehensive domain randomisation and evaluated on success rate, ball displacement, and robustness to perturbations, with a final deployment attempt on the physical robot.
 \end{abstract}
 
 \section{Motivation}
-% Introduction goes here
-Reliable task execution remains an open problem for humanoid robots. Kicking a football requires well-coordinated kinematics to cover approach, stance, hip rotation, leg swing, balance, and other nuances, but it does have a clear success metric. We would like to explore how much SONIC's pre-trained whole-body prior improves policy performance and reduces the cost of learning this skill, both in simulation and in real life. Also, it would be pretty cool to teach a robot some football.
+Reliable task execution remains an open problem for humanoid robots. Kicking a football requires well-coordinated kinematics spanning approach, stance, hip rotation, leg swing, and post-kick balance, but it does have a clear, binary success metric: does the ball move, and how far? We explore how much SONIC's pre-trained whole-body prior improves policy performance and reduces the data required to learn this skill, both in simulation and on hardware. Additionally, it would be pretty cool to teach a robot some football.
 
 \section{Background}
-% Background goes here
-This project builds on SONIC \cite{luo2025sonic} and reward shaping philosophy from Human2Sim2Robot \cite{lum2025human2sim2robot}.
+This project builds on SONIC~\cite{luo2025sonic}, which demonstrates that scaling motion-tracking with PPO over 700\,hours of mocap data yields a generalist humanoid prior that transfers to downstream skills. We additionally draw on Human2Sim2Robot~\cite{lum2025human2sim2robot} for reward shaping philosophy, on legged-locomotion domain randomisation techniques from \citet{kumar2021rma}, and on motion retargeting methods from \citet{cheng2024expressive}.
 
-\section{Methodology}
-% Methodology goes here
+\section{Technical Plan}
+
+\subsection{Task Definition}
+The K1 will learn to \textbf{kick a stationary football} placed at a fixed offset in front of the robot. The behaviour encompasses: a controlled approach to the ball, a single-leg stance phase, a rapid hip-flexion/knee-extension kick swing, ball contact, and stable recovery to standing. Success is defined as the ball crossing a threshold distance with the robot remaining upright after contact.
+
+\subsection{Environments}
+We will build a single \textbf{manager-based Isaac Lab environment} containing the K1 robot and a rigid spherical ball asset. The environment will expose the following randomisations during training:
+
+\begin{itemize}[noitemsep]
+    \item \textbf{Terrain:} Flat ground only (Phase 1); optional mild slope variation (Phase 2, nice-to-have).
+    \item \textbf{Ground friction:} Uniform $\mathcal{U}(0.4, 1.2)$ to capture gym floor vs.\ outdoor turf conditions.
+    \item \textbf{Robot mass:} Per-link mass perturbation $\mathcal{U}(-5\%,+5\%)$ of nominal values.
+    \item \textbf{External pushes:} Random impulses (up to 50\,N) applied to the base every $\sim$2\,s during training.
+    \item \textbf{Ball position:} Uniform offset within a $\pm0.05$\,m radius around the nominal placement.
+    \item \textbf{Initial joint state noise:} $\mathcal{U}(-0.02, 0.02)$\,rad on all joint positions at reset.
+    \item \textbf{Lighting:} Randomised (nice-to-have, only if vision features are added).
+\end{itemize}
+
+\subsection{State / Observations}
+Following the SONIC observation convention, the observation vector $s_t$ is split into two streams:
+
+\noindent\textbf{Proprioception} ($s^p_t$, dim $\approx 90$):
+\begin{itemize}[noitemsep]
+    \item Joint positions $q_t \in \mathbb{R}^{22}$ (all 22 K1 DoF, relative to default pose).
+    \item Joint velocities $\dot{q}_t \in \mathbb{R}^{22}$.
+    \item Base linear velocity in root frame $v_t \in \mathbb{R}^3$.
+    \item Base angular velocity in root frame $\omega_t \in \mathbb{R}^3$.
+    \item Gravity vector projected into root frame $g_t \in \mathbb{R}^3$ (proxy for pitch/roll from IMU).
+    \item Foot contact binary flags $c_t \in \{0,1\}^2$ (left/right foot).
+    \item Previous action $a_{t-1} \in \mathbb{R}^{22}$.
+\end{itemize}
+
+\noindent\textbf{Task context} ($s^g_t$, dim $\approx 10$):
+\begin{itemize}[noitemsep]
+    \item Relative ball position in root frame $\Delta p_\text{ball} \in \mathbb{R}^3$.
+    \item Target kick direction (unit vector) $\hat{d}_\text{kick} \in \mathbb{R}^2$.
+    \item SONIC motion command tokens (future kinematic reference over a look-ahead window $T/4$, sampled from the retained human demonstration).
+\end{itemize}
+
+\noindent All observations are normalised to zero mean and unit variance using running statistics computed during training.
+
+\subsection{Learning / Control Paradigm}
+We use a \textbf{hybrid imitation + RL} paradigm, directly inspired by SONIC. The base SONIC prior already provides a strong whole-body motion prior trained via PPO on diverse mocap. We fine-tune this prior using:
+
+\begin{enumerate}[noitemsep]
+    \item \textbf{Motion-tracking reward} (from SONIC): penalises deviation of simulated joint positions and root trajectory from the reference kicking motion, maintaining postural naturalness.
+    \item \textbf{Task reward} (new): a shaped reward for ball displacement, foot-ball contact force, and stable post-kick recovery.
+    \item \textbf{Regularisation}: small penalty on action magnitude and joint torque to promote energy efficiency.
+\end{enumerate}
+
+The combined reward is $r_t = \lambda_\text{track} r_\text{track} + \lambda_\text{task} r_\text{task} - \lambda_\text{reg} r_\text{reg}$, with weights tuned by sweep. We do \emph{not} use MPC or classical trajectory optimisation in the primary pipeline, though we may use MPC as a fallback for the stance-phase balancer if RL alone is insufficient.
+
+\subsection{Data (Imitation / Demonstrations)}
+\begin{itemize}[noitemsep]
+    \item \textbf{Source:} One team member will perform $\sim$10--20 video kicking demonstrations captured at 30\,fps. We will additionally use any publicly available football-kick clips from the CMU Mocap database or similar sources.
+    \item \textbf{Preprocessing / Retargeting:} 2D video keypoints will be lifted to 3D using a video-to-motion model (e.g., WHAM or SMPLify-X), then retargeted onto the K1's joint space using the retargeting utilities in \texttt{booster\_assets/motions/K1/} and the provided helper scripts. Retargeted CSV files will be converted to NPZ using the provided helper script.
+    \item \textbf{Validation:} Retargeted motions will be replayed on the K1 URDF in Isaac Lab (motion-preview mode) and visually inspected for foot-ground penetration, joint-limit violations, and kinematic plausibility before being used as RL reference trajectories.
+\end{itemize}
+
+\subsection{Model / Training Stack}
+\begin{itemize}[noitemsep]
+    \item \textbf{Policy architecture:} MLP actor-critic (hidden layers [512, 256, 128]) initialised from SONIC pre-trained weights. The actor outputs target joint positions $a_t \in \mathbb{R}^{22}$ at 50\,Hz; a 500\,Hz PD controller runs on hardware.
+    \item \textbf{Algorithm:} PPO (Proximal Policy Optimisation) as implemented in \texttt{rsl\_rl}, consistent with the SONIC training pipeline.
+    \item \textbf{Framework:} Isaac Lab (manager-based env) + \texttt{booster\_train} training scripts + PyTorch.
+    \item \textbf{Compute:} $\sim$4096 parallel environments on a shared GPU cluster; expected training time $\sim$24--48 GPU hours for fine-tuning from SONIC weights (vs.\ 200+ hours from scratch).
+    \item \textbf{Rationale:} PPO + Isaac Lab is the same stack as SONIC, simplifying checkpoint loading. RSL-RL is well-supported by the Booster codebase.
+\end{itemize}
+
+\subsection{Evaluation}
+Primary metrics (must-work):
+\begin{itemize}[noitemsep]
+    \item \textbf{Ball displacement:} Mean distance ball travels per kick attempt (m).
+    \item \textbf{Contact success rate:} Fraction of episodes in which foot makes valid contact with ball.
+    \item \textbf{Upright rate after kick:} Fraction of episodes where robot does not fall within 3\,s post-contact.
+    \item \textbf{SONIC-vs-scratch ablation:} Sample efficiency comparison (success rate vs. environment steps).
+\end{itemize}
+Secondary metrics (nice-to-have):
+\begin{itemize}[noitemsep]
+    \item \textbf{Tracking error:} RMSE of joint trajectories vs.\ reference demonstration.
+    \item \textbf{Energy consumption:} Total joint torque integral per episode.
+    \item \textbf{Robustness to pushes:} Success rate under random perturbations (up to 50\,N).
+    \item \textbf{Real-robot success rate:} Binary success on the physical K1 over 20 trials.
+\end{itemize}
 
 \section{Milestones}
-\begin{itemize}
-    \item \textbf{Demo Collection and Reward Design:} Record a human kicking demo, extract leg swing trajectory, ball contact region, and other key features. Define a reward function and postural naturalness term from the SONIC prior.
-    \item \textbf{Sim Policy Training:} RL fine-tune SONIC on the kicking task in sim. Compare SONIC-initialised vs. scratch-trained policy on sample efficiency and performance.
-    \item \textbf{Sim Robustness:} Introduce domain randomisations over key variables and measure policy success rate across trials.
-    \item \textbf{Real Robot Deployment:} Deploy the best sim policy on the physical G1. Measure success rate and document failures.
-    \item \textbf{Real World Fine-tuning:} Fine-tune the policy on real hardware to close the sim-to-real gap.
+\begin{itemize}[noitemsep]
+    \item \textbf{Demo Collection and Reward Design (Week 1--2):} Record human kicking demos, extract leg-swing trajectory, ball contact region, and other key features. Define the combined tracking + task reward and postural naturalness term from the SONIC prior.
+    \item \textbf{Sim Policy Training (Week 3--4):} RL fine-tune SONIC on the kicking task in simulation. Run SONIC-initialised vs.\ scratch-trained policy ablation and compare sample efficiency and performance.
+    \item \textbf{Sim Robustness (Week 5):} Introduce full domain randomisation suite and measure policy success rate across 1000 randomised trials.
+    \item \textbf{Real Robot Deployment (Week 6):} Deploy the best sim policy on the physical K1. Measure success rate and document failures.
+    \item \textbf{Real-World Fine-tuning (Week 7, nice-to-have):} Optionally fine-tune the policy on real hardware to close the sim-to-real gap.
 \end{itemize}
 
 \section{Risks and Fallbacks}
-The primary risk is sim-to-real transfer, as contact-rich tasks are sensitive to environmental variables like ground friction and joint compliance, which can cause the policy to behave other than expected. We mitigate this through comprehensive testing during the robustness phase. If transfer remains difficult, we will attempt sim-to-sim validation in a second simulator such as MuJoCo to attempt and isolate if causes may be simulator related. In the worst case, simulation-only results including the SONIC-vs-scratch ablation remain a self-contained and meaningful contribution.
+The primary risk is sim-to-real transfer, as contact-rich tasks are sensitive to ground friction and joint compliance. We mitigate this through the comprehensive randomisation phase. If transfer remains difficult, we will run sim-to-sim validation in MuJoCo to isolate simulator-specific causes. In the worst case, simulation-only results including the SONIC-vs-scratch ablation constitute a self-contained and meaningful contribution.
 
+\section{Tools and Libraries}
+\begin{itemize}[noitemsep]
+    \item \textbf{Isaac Lab} --- primary simulation and training environment.
+    \item \textbf{booster\_assets} --- K1 URDF, motion CSV files, retargeting configs.
+    \item \textbf{booster\_train} --- Isaac Lab task configs and training scripts for the K1.
+    \item \textbf{PyTorch} --- policy network implementation and gradient-based optimisation.
+    \item \textbf{rsl\_rl} --- PPO implementation compatible with SONIC and the Booster codebase.
+    \item \textbf{WHAM / SMPLify-X} --- video-to-3D motion lifting for human demo retargeting.
+    \item \textbf{MuJoCo} --- secondary simulator for sim-to-sim robustness validation (nice-to-have).
+    \item \textbf{ONNX / TensorRT} --- model export and optimisation for onboard K1 deployment.
+    \item \textbf{OpenCV} --- video preprocessing for human demonstration extraction.
+\end{itemize}
+
+\section{Work Split}
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Subsystem} & \textbf{Owner} & \textbf{Deliverable} \\
+\midrule
+Env + Rewards & TBD & Isaac Lab env config, reward terms, terminations \\
+Data Pipeline & TBD & Demo capture, retargeting, NPZ conversion \\
+Training / Eval & TBD & PPO fine-tuning, ablation, metric logging \\
+Deployment & TBD & ONNX export, onboard inference, real-robot trials \\
+\bottomrule
+\end{tabular}
+\end{center}
+All team members will participate in weekly cross-reviews of each subsystem to maintain shared understanding and equalise load. The env and reward subsystem is the critical path; data pipeline and training can overlap once a minimal env is running.
+
+\section{References}
 \bibliographystyle{plain}
 \bibliography{references}
 
