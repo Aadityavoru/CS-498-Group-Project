@@ -10,7 +10,7 @@
 
 \geometry{margin=1in}
 
-\title{CS 498 Group Project}
+\title{CS 498 Team 2 Group Project \\ \large SONIC Kick}
 \author{}
 \date{}
 
@@ -18,24 +18,34 @@
 
 \maketitle
 
+\noindent\textbf{Goal:} Fine-tune SONIC's pre-trained whole-body motion prior to learn a consistent football kicking policy, guided by human demonstrations, and transfer it to the physical humanoid.
+
 \begin{abstract}
     % Abstract goes here
 \end{abstract}
 
-\section{Introduction}
+\section{Motivation}
 % Introduction goes here
+Reliable task execution remains an open problem for humanoid robots. Kicking a football requires well-coordinated kinematics to cover approach, stance, hip rotation, leg swing, balance, and other nuances, but it does have a clear success metric. We would like to explore how much SONIC's pre-trained whole-body prior improves policy performance and reduces the cost of learning this skill, both in simulation and in real life. Also, it would be pretty cool to teach a robot some football.
 
 \section{Background}
 % Background goes here
+This project builds on SONIC \cite{luo2025sonic} and reward shaping philosophy from Human2Sim2Robot \cite{lum2025human2sim2robot}.
 
 \section{Methodology}
 % Methodology goes here
 
-\section{Results}
-% Results goes here
+\section{Milestones}
+\begin{itemize}
+    \item \textbf{Demo Collection and Reward Design:} Record a human kicking demo, extract leg swing trajectory, ball contact region, and other key features. Define a reward function and postural naturalness term from the SONIC prior.
+    \item \textbf{Sim Policy Training:} RL fine-tune SONIC on the kicking task in sim. Compare SONIC-initialised vs. scratch-trained policy on sample efficiency and performance.
+    \item \textbf{Sim Robustness:} Introduce domain randomisations over key variables and measure policy success rate across trials.
+    \item \textbf{Real Robot Deployment:} Deploy the best sim policy on the physical G1. Measure success rate and document failures.
+    \item \textbf{Real World Fine-tuning:} Fine-tune the policy on real hardware to close the sim-to-real gap.
+\end{itemize}
 
-\section{Conclusion}
-% Conclusion goes here
+\section{Risks & Fallbacks}
+The primary risk is sim-to-real transfer, as contact-rich tasks are sensitive to environmental variables like ground friction and joint compliance, which can cause the policy to behave other than expected. We mitigate this through comprehensive testing during the robustness phase. If transfer remains difficult, we will attempt sim-to-sim validation in a second simulator such as MuJoCo to attempt and isolate if causes may be simulator related. In the worst case, simulation-only results including the SONIC-vs-scratch ablation remain a self-contained and meaningful contribution.
 
 \bibliographystyle{plain}
 \bibliography{references}
