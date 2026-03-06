@@ -44,7 +44,7 @@ This project builds on SONIC \cite{luo2025sonic} and reward shaping philosophy f
     \item \textbf{Real World Fine-tuning:} Fine-tune the policy on real hardware to close the sim-to-real gap.
 \end{itemize}
 
-\section{Risks & Fallbacks}
+\section{Risks and Fallbacks}
 The primary risk is sim-to-real transfer, as contact-rich tasks are sensitive to environmental variables like ground friction and joint compliance, which can cause the policy to behave other than expected. We mitigate this through comprehensive testing during the robustness phase. If transfer remains difficult, we will attempt sim-to-sim validation in a second simulator such as MuJoCo to attempt and isolate if causes may be simulator related. In the worst case, simulation-only results including the SONIC-vs-scratch ablation remain a self-contained and meaningful contribution.
 
 \bibliographystyle{plain}
